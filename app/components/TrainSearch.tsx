@@ -1,9 +1,13 @@
-"use client";
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ArrowUpDown, Calendar, Train, Search, Bookmark, ChevronRight } from "lucide-react";
 import type { TrainData } from "@/modules/trains/train.schema";
 import { apiSearchTrains } from "../utils/mockData";
+import { getStationByCode, getStationByName, searchStations } from "indian-railway-station-codes";
+
+interface Station {
+  name: string;
+  code: string;
+}
 
 interface TrainSearchProps {
   onViewSchedule: (trainNo: string) => void;
@@ -18,8 +22,26 @@ export default function TrainSearch({
   savedTrains,
   onToggleSave,
 }: TrainSearchProps) {
+  // Initialize input text fields from codes
+  const initialFrom = getStationByCode("NDLS");
+  const initialTo = getStationByCode("MMCT");
+
+  const [fromQuery, setFromQuery] = useState(initialFrom ? `${initialFrom.name} (${initialFrom.code})` : "NDLS");
+  const [toQuery, setToQuery] = useState(initialTo ? `${initialTo.name} (${initialTo.code})` : "MMCT");
+
   const [fromStation, setFromStation] = useState("NDLS");
   const [toStation, setToStation] = useState("MMCT");
+
+  const [fromSuggestions, setFromSuggestions] = useState<readonly Station[]>([]);
+  const [toSuggestions, setToSuggestions] = useState<readonly Station[]>([]);
+  const [showFromSuggestions, setShowFromSuggestions] = useState(false);
+  const [showToSuggestions, setShowToSuggestions] = useState(false);
+  const [activeFromIndex, setActiveFromIndex] = useState(-1);
+  const [activeToIndex, setActiveToIndex] = useState(-1);
+
+  const fromRef = useRef<HTMLDivElement>(null);
+  const toRef = useRef<HTMLDivElement>(null);
+
   const [date, setDate] = useState("");
   const [trains, setTrains] = useState<TrainData[]>([]);
   const [loading, setLoading] = useState(false);
@@ -35,14 +57,80 @@ export default function TrainSearch({
     setDate(`${day}-${month}-${year}`);
   }, []);
 
+  // Click outside suggestions lists to close them
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (fromRef.current && !fromRef.current.contains(event.target as Node)) {
+        setShowFromSuggestions(false);
+      }
+      if (toRef.current && !toRef.current.contains(event.target as Node)) {
+        setShowToSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const resolveStationCode = (query: string): string => {
+    const trimmed = query.trim().toUpperCase();
+    if (!trimmed) return "";
+    
+    // Check if it matches "NAME (CODE)" format
+    const match = trimmed.match(/\(([^)]+)\)$/);
+    if (match && match[1]) {
+      const code = match[1].trim();
+      const station = getStationByCode(code);
+      if (station) return station.code;
+    }
+    
+    // Check if the query itself is a valid station code
+    const stationByCode = getStationByCode(trimmed);
+    if (stationByCode) return stationByCode.code;
+
+    // Check if the query is a valid station name
+    const stationByName = getStationByName(trimmed);
+    if (stationByName) return stationByName.code;
+
+    // Fallback: search for station names and take the first match if any
+    const searchResults = searchStations(trimmed);
+    if (searchResults.length > 0) {
+      return searchResults[0].code;
+    }
+
+    return trimmed; // fallback to whatever they typed
+  };
+
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+
+    const resolvedFrom = resolveStationCode(fromQuery);
+    const resolvedTo = resolveStationCode(toQuery);
+
+    if (!resolvedFrom || !resolvedTo) {
+      setErrorMsg("Please enter valid FROM and TO stations.");
+      return;
+    }
+
+    // Prefill the queries with clean full names if resolved
+    const stationFromObj = getStationByCode(resolvedFrom);
+    if (stationFromObj) {
+      setFromQuery(`${stationFromObj.name} (${stationFromObj.code})`);
+      setFromStation(resolvedFrom);
+    }
+    const stationToObj = getStationByCode(resolvedTo);
+    if (stationToObj) {
+      setToQuery(`${stationToObj.name} (${stationToObj.code})`);
+      setToStation(resolvedTo);
+    }
+
     setLoading(true);
     setSearched(true);
     setErrorMsg("");
 
     try {
-      const results = await apiSearchTrains(fromStation, toStation, date);
+      const results = await apiSearchTrains(resolvedFrom, resolvedTo, date);
       setTrains(results);
       if (results.length === 0) {
         setErrorMsg("No trains found for this route.");
@@ -57,9 +145,101 @@ export default function TrainSearch({
 
   // Swap stations handler
   const handleSwap = () => {
-    const temp = fromStation;
+    const tempCode = fromStation;
     setFromStation(toStation);
-    setToStation(temp);
+    setToStation(tempCode);
+
+    const tempQuery = fromQuery;
+    setFromQuery(toQuery);
+    setToQuery(tempQuery);
+  };
+
+  const handleFromChange = (val: string) => {
+    setFromQuery(val);
+    if (val.trim()) {
+      const results = searchStations(val);
+      setFromSuggestions(results.slice(0, 10));
+      setShowFromSuggestions(true);
+      setActiveFromIndex(-1);
+    } else {
+      setFromSuggestions([]);
+      setShowFromSuggestions(false);
+      setFromStation("");
+    }
+  };
+
+  const handleToChange = (val: string) => {
+    setToQuery(val);
+    if (val.trim()) {
+      const results = searchStations(val);
+      setToSuggestions(results.slice(0, 10));
+      setShowToSuggestions(true);
+      setActiveToIndex(-1);
+    } else {
+      setToSuggestions([]);
+      setShowToSuggestions(false);
+      setToStation("");
+    }
+  };
+
+  const handleFromKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showFromSuggestions || fromSuggestions.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveFromIndex((prev) => (prev + 1) % fromSuggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveFromIndex((prev) => (prev - 1 + fromSuggestions.length) % fromSuggestions.length);
+    } else if (e.key === "Enter") {
+      if (activeFromIndex >= 0 && activeFromIndex < fromSuggestions.length) {
+        e.preventDefault();
+        const selected = fromSuggestions[activeFromIndex];
+        setFromQuery(`${selected.name} (${selected.code})`);
+        setFromStation(selected.code);
+        setShowFromSuggestions(false);
+        setActiveFromIndex(-1);
+      }
+    } else if (e.key === "Escape") {
+      setShowFromSuggestions(false);
+    }
+  };
+
+  const handleToKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showToSuggestions || toSuggestions.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveToIndex((prev) => (prev + 1) % toSuggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveToIndex((prev) => (prev - 1 + toSuggestions.length) % toSuggestions.length);
+    } else if (e.key === "Enter") {
+      if (activeToIndex >= 0 && activeToIndex < toSuggestions.length) {
+        e.preventDefault();
+        const selected = toSuggestions[activeToIndex];
+        setToQuery(`${selected.name} (${selected.code})`);
+        setToStation(selected.code);
+        setShowToSuggestions(false);
+        setActiveToIndex(-1);
+      }
+    } else if (e.key === "Escape") {
+      setShowToSuggestions(false);
+    }
+  };
+
+  const selectFromStation = (selected: Station) => {
+    setFromQuery(`${selected.name} (${selected.code})`);
+    setFromStation(selected.code);
+    setShowFromSuggestions(false);
+    setActiveFromIndex(-1);
+  };
+
+  const selectToStation = (selected: Station) => {
+    setToQuery(`${selected.name} (${selected.code})`);
+    setToStation(selected.code);
+    setShowToSuggestions(false);
+    setActiveToIndex(-1);
   };
 
   // Helper to render running days list (M T W T F S S)
@@ -106,20 +286,65 @@ export default function TrainSearch({
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
               FROM STATION
             </label>
-            <div className="relative">
+            <div className="relative" ref={fromRef}>
               <input
                 type="text"
-                value={fromStation}
-                onChange={(e) => setFromStation(e.target.value.toUpperCase())}
-                placeholder="Station Code (e.g. NDLS)"
-                className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide uppercase transition-all outline-none ${
+                value={fromQuery}
+                onChange={(e) => handleFromChange(e.target.value)}
+                onFocus={() => {
+                  if (fromQuery.trim()) {
+                    const results = searchStations(fromQuery);
+                    setFromSuggestions(results.slice(0, 10));
+                    setShowFromSuggestions(true);
+                  }
+                }}
+                onKeyDown={handleFromKeyDown}
+                placeholder="Search station name or code (e.g. NDLS)"
+                className={`w-full px-4 py-3 pr-12 rounded-xl border-2 font-extrabold text-base tracking-wide transition-all outline-none ${
                   isSunlightMode
                     ? "bg-sky-50/25 border-sky-100/80 focus:border-primary text-sky-950"
                     : "bg-slate-950 border-sky-950 focus:border-secondary text-sky-100"
                 }`}
                 required
+                autoComplete="off"
               />
               <Train className="w-5 h-5 absolute right-4 top-3.5 text-slate-400" />
+
+              {/* Suggestions Dropdown */}
+              {showFromSuggestions && fromSuggestions.length > 0 && (
+                <div
+                  className={`absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border-2 shadow-lg transition-all ${
+                    isSunlightMode
+                      ? "bg-white border-sky-100/90 text-sky-950 divide-y divide-sky-50"
+                      : "bg-slate-950 border-sky-950 text-sky-100 divide-y divide-sky-950/50"
+                  }`}
+                >
+                  {fromSuggestions.map((station, idx) => (
+                    <button
+                      key={station.code}
+                      type="button"
+                      onClick={() => selectFromStation(station)}
+                      onMouseEnter={() => setActiveFromIndex(idx)}
+                      className={`w-full text-left px-4 py-3 text-sm flex items-center justify-between transition-colors duration-150 cursor-pointer ${
+                        idx === activeFromIndex
+                          ? isSunlightMode
+                            ? "bg-sky-50 text-primary font-black"
+                            : "bg-slate-900 text-secondary font-black"
+                          : isSunlightMode
+                          ? "hover:bg-sky-50/50"
+                          : "hover:bg-slate-900/50"
+                      }`}
+                    >
+                      <span className="truncate pr-2">{station.name}</span>
+                      <span className={`text-xs font-black px-2 py-0.5 rounded tracking-wide ${
+                        isSunlightMode ? "bg-sky-50 text-sky-600" : "bg-sky-950/50 text-sky-350"
+                      }`}>
+                        {station.code}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -144,20 +369,65 @@ export default function TrainSearch({
             <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
               TO STATION
             </label>
-            <div className="relative">
+            <div className="relative" ref={toRef}>
               <input
                 type="text"
-                value={toStation}
-                onChange={(e) => setToStation(e.target.value.toUpperCase())}
-                placeholder="Station Code (e.g. MMCT)"
-                className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide uppercase transition-all outline-none ${
+                value={toQuery}
+                onChange={(e) => handleToChange(e.target.value)}
+                onFocus={() => {
+                  if (toQuery.trim()) {
+                    const results = searchStations(toQuery);
+                    setToSuggestions(results.slice(0, 10));
+                    setShowToSuggestions(true);
+                  }
+                }}
+                onKeyDown={handleToKeyDown}
+                placeholder="Search station name or code (e.g. MMCT)"
+                className={`w-full px-4 py-3 pr-12 rounded-xl border-2 font-extrabold text-base tracking-wide transition-all outline-none ${
                   isSunlightMode
                     ? "bg-sky-50/25 border-sky-100/80 focus:border-primary text-sky-950"
                     : "bg-slate-950 border-sky-950 focus:border-secondary text-sky-100"
                 }`}
                 required
+                autoComplete="off"
               />
               <Train className="w-5 h-5 absolute right-4 top-3.5 text-slate-400" />
+
+              {/* Suggestions Dropdown */}
+              {showToSuggestions && toSuggestions.length > 0 && (
+                <div
+                  className={`absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border-2 shadow-lg transition-all ${
+                    isSunlightMode
+                      ? "bg-white border-sky-100/90 text-sky-950 divide-y divide-sky-50"
+                      : "bg-slate-950 border-sky-950 text-sky-100 divide-y divide-sky-950/50"
+                  }`}
+                >
+                  {toSuggestions.map((station, idx) => (
+                    <button
+                      key={station.code}
+                      type="button"
+                      onClick={() => selectToStation(station)}
+                      onMouseEnter={() => setActiveToIndex(idx)}
+                      className={`w-full text-left px-4 py-3 text-sm flex items-center justify-between transition-colors duration-150 cursor-pointer ${
+                        idx === activeToIndex
+                          ? isSunlightMode
+                            ? "bg-sky-50 text-primary font-black"
+                            : "bg-slate-900 text-secondary font-black"
+                          : isSunlightMode
+                          ? "hover:bg-sky-50/50"
+                          : "hover:bg-slate-900/50"
+                      }`}
+                    >
+                      <span className="truncate pr-2">{station.name}</span>
+                      <span className={`text-xs font-black px-2 py-0.5 rounded tracking-wide ${
+                        isSunlightMode ? "bg-sky-50 text-sky-600" : "bg-sky-950/50 text-sky-350"
+                      }`}>
+                        {station.code}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
