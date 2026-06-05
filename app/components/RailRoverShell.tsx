@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Map, Bookmark, Sun, Smartphone, Wifi, Clock } from "lucide-react";
-import TrainSearch from "./TrainSearch";
-import TrainSchedule from "./TrainSchedule";
+import { Search, Map, Bookmark, Sun, Smartphone, Wifi, Clock, Ticket } from "lucide-react";
+import TrainSearch from "@/app/components/TrainSearch";
+import TrainSchedule from "@/app/components/TrainSchedule";
+import PnrStatus from "@/app/components/PnrStatus";
 
-type TabType = "search" | "schedule" | "saved";
+type TabType = "search" | "schedule" | "pnr" | "saved";
 
 export default function RailRoverShell() {
   const [activeTab, setActiveTab] = useState<TabType>("search");
@@ -64,20 +65,24 @@ export default function RailRoverShell() {
 
   return (
     <div
-      className={`min-h-screen w-full flex items-center justify-center p-0 md:p-6 transition-colors duration-300 ${
-        isSunlightMode ? "bg-slate-100" : "bg-slate-950"
+      className={`min-h-screen w-full flex items-center justify-center p-0 md:p-6 transition-colors duration-500 ${
+        isSunlightMode
+          ? "bg-gradient-to-br from-sky-50 via-sky-100 to-sky-200"
+          : "bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950"
       }`}
     >
       {/* Smartphone frame container */}
       <div
-        className={`w-full max-w-md h-[100vh] md:h-[840px] flex flex-col relative overflow-hidden md:rounded-[40px] md:shadow-2xl md:border-[10px] md:border-slate-800 transition-colors duration-300 ${
-          isSunlightMode ? "bg-slate-50 text-slate-900 border-slate-300" : "bg-slate-900 text-slate-100 border-slate-800"
+        className={`w-full max-w-md h-[100vh] md:h-[840px] flex flex-col relative overflow-hidden md:rounded-[40px] md:shadow-2xl border-x-0 md:border-[10px] transition-all duration-500 ${
+          isSunlightMode
+            ? "bg-white text-slate-850 border-slate-200 shadow-sky-900/10"
+            : "bg-bg-dark text-text-dark border-slate-900 shadow-black/40"
         }`}
       >
         {/* Status bar */}
         <div
-          className={`px-6 pt-3 pb-2 flex justify-between items-center text-xs font-semibold tracking-wider transition-colors duration-300 ${
-            isSunlightMode ? "bg-slate-200 text-slate-700" : "bg-slate-950 text-slate-400"
+          className={`px-6 pt-3 pb-2 flex justify-between items-center text-xs font-semibold tracking-wider transition-colors duration-500 ${
+            isSunlightMode ? "bg-sky-50 text-sky-800" : "bg-slate-950/80 text-sky-300"
           }`}
         >
           <div className="flex items-center gap-1.5">
@@ -87,7 +92,7 @@ export default function RailRoverShell() {
           <div className="flex items-center gap-2">
             <span
               className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                isOnline ? "bg-emerald-600/10 text-emerald-600" : "bg-red-600/10 text-red-600"
+                isOnline ? "bg-emerald-650/10 text-emerald-600" : "bg-red-650/10 text-red-600"
               }`}
             >
               <Wifi className="w-3 h-3" />
@@ -99,17 +104,17 @@ export default function RailRoverShell() {
 
         {/* Brand Header */}
         <header
-          className={`px-5 py-4 border-b flex justify-between items-center transition-colors duration-300 ${
-            isSunlightMode ? "bg-slate-50 border-slate-200" : "bg-slate-900 border-slate-800"
+          className={`px-5 py-4 border-b flex justify-between items-center transition-colors duration-500 ${
+            isSunlightMode ? "bg-white border-sky-100" : "bg-bg-dark border-sky-950/40"
           }`}
         >
           <div>
             <h1 className="text-xl font-extrabold tracking-tight flex items-center gap-1">
               <span>Rail</span>
-              <span className={isSunlightMode ? "text-blue-600" : "text-blue-400"}>Rover</span>
+              <span className={isSunlightMode ? "text-primary" : "text-secondary"}>Rover</span>
             </h1>
             <p className="text-[10px] uppercase font-bold tracking-widest text-slate-500">
-              Sunlight Assist Active
+              {isSunlightMode ? "Sunlight Assist Active" : "Night Deck Active"}
             </p>
           </div>
 
@@ -117,10 +122,10 @@ export default function RailRoverShell() {
             {/* Sunlight toggle switch */}
             <button
               onClick={() => setIsSunlightMode(!isSunlightMode)}
-              className={`p-2.5 rounded-full border transition-all duration-300 active:scale-95 ${
+              className={`p-2.5 rounded-full border transition-all duration-300 active:scale-95 cursor-pointer ${
                 isSunlightMode
-                  ? "bg-amber-100 text-amber-900 border-amber-300"
-                  : "bg-slate-800 text-amber-400 border-slate-700"
+                  ? "bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200"
+                  : "bg-slate-800 text-amber-400 border-slate-700 hover:bg-slate-700"
               }`}
               title="Toggle Sunlight Contrast Mode"
             >
@@ -156,13 +161,18 @@ export default function RailRoverShell() {
                   savedTrains={savedTrains}
                 />
               )}
+              {activeTab === "pnr" && (
+                <PnrStatus isSunlightMode={isSunlightMode} />
+              )}
               {activeTab === "saved" && (
                 <div className="flex flex-col gap-4">
                   <h2 className="text-lg font-black uppercase tracking-wider text-slate-500 mb-2">
                     Pinned Trains
                   </h2>
                   {savedTrains.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed border-slate-300 rounded-2xl p-6">
+                    <div className={`flex flex-col items-center justify-center py-16 text-center border-2 border-dashed rounded-2xl p-6 ${
+                      isSunlightMode ? "border-sky-100" : "border-sky-950/40"
+                    }`}>
                       <Bookmark className="w-10 h-10 text-slate-400 mb-3" />
                       <p className="font-bold text-slate-700">No Pinned Trains</p>
                       <p className="text-xs text-slate-500 mt-1 max-w-[200px]">
@@ -174,15 +184,21 @@ export default function RailRoverShell() {
                       {savedTrains.map((trainNo) => (
                         <div
                           key={trainNo}
-                          className={`p-4 rounded-xl border-2 flex justify-between items-center shadow-sm ${
-                            isSunlightMode ? "bg-white border-slate-200" : "bg-slate-800/80 border-slate-700"
+                          className={`p-4 rounded-xl border-2 flex justify-between items-center shadow-sm transition-all duration-300 ${
+                            isSunlightMode
+                              ? "bg-white border-sky-100 hover:shadow-md hover:shadow-sky-100/40"
+                              : "bg-slate-900/40 border-sky-950/40 hover:bg-slate-900/60 hover:border-sky-900/40"
                           }`}
                         >
                           <div>
-                            <span className="text-[10px] font-black tracking-widest text-blue-600 bg-blue-100 px-2 py-0.5 rounded mr-2">
+                            <span className={`text-[10px] font-black tracking-widest px-2 py-0.5 rounded mr-2 ${
+                              isSunlightMode ? "text-primary bg-sky-50" : "text-sky-300 bg-sky-950/40"
+                            }`}>
                               {trainNo}
                             </span>
-                            <span className="font-extrabold text-sm tracking-tight text-slate-800">
+                            <span className={`font-extrabold text-sm tracking-tight ${
+                              isSunlightMode ? "text-sky-900" : "text-sky-100"
+                            }`}>
                               {trainNo === "12952"
                                 ? "MUMBAI RAJDHANI"
                                 : trainNo === "12002"
@@ -195,13 +211,13 @@ export default function RailRoverShell() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleViewSchedule(trainNo)}
-                              className="text-xs font-black uppercase bg-slate-900 text-slate-100 px-3 py-2 rounded-lg hover:bg-slate-800 active:scale-95 transition-transform"
+                              className="text-xs font-black uppercase bg-primary hover:bg-sky-500 text-white px-3 py-2 rounded-lg active:scale-95 transition-all cursor-pointer"
                             >
                               Route
                             </button>
                             <button
                               onClick={() => toggleSaveTrain(trainNo)}
-                              className="text-xs text-red-500 font-bold px-2 py-2 rounded hover:bg-red-50"
+                              className="text-xs text-red-500 hover:text-red-650 hover:bg-red-500/10 font-bold px-2.5 py-2 rounded transition-colors cursor-pointer"
                             >
                               Unpin
                             </button>
@@ -216,54 +232,76 @@ export default function RailRoverShell() {
           </AnimatePresence>
         </main>
 
-        {/* Bottom thumb-friendly navigation bar */}
+        {/* Bottom navigation bar */}
         <nav
-          className={`h-[76px] pb-4 px-6 border-t flex justify-around items-center transition-colors duration-300 ${
-            isSunlightMode ? "bg-white border-slate-200" : "bg-slate-950 border-slate-800"
+          className={`h-[76px] pb-4 px-6 border-t flex justify-around items-center transition-colors duration-500 ${
+            isSunlightMode ? "bg-white border-sky-100" : "bg-slate-950 border-sky-950/40"
           }`}
         >
           <button
             onClick={() => setActiveTab("search")}
-            className={`flex flex-col items-center justify-center gap-1.5 w-20 h-14 rounded-xl active:scale-90 transition-all ${
+            className={`flex flex-col items-center justify-center gap-1.5 w-16 h-14 rounded-xl transition-all duration-200 cursor-pointer active:scale-90 ${
               activeTab === "search"
-                ? "text-blue-600 scale-105"
+                ? isSunlightMode
+                  ? "text-primary bg-sky-50 font-black scale-105 shadow-xs"
+                  : "text-secondary bg-sky-950/30 font-black scale-105"
                 : isSunlightMode
-                ? "text-slate-500"
-                : "text-slate-400"
+                ? "text-slate-500 hover:text-sky-650 hover:bg-sky-50/30"
+                : "text-slate-400 hover:text-sky-300 hover:bg-slate-900/50"
             }`}
           >
-            <Search className="w-6 h-6 stroke-[2.5]" />
+            <Search className="w-5 h-5 stroke-[2.5]" />
             <span className="text-[10px] font-black uppercase tracking-wider">Search</span>
           </button>
 
           <button
             onClick={() => setActiveTab("schedule")}
-            className={`flex flex-col items-center justify-center gap-1.5 w-20 h-14 rounded-xl active:scale-90 transition-all ${
+            className={`flex flex-col items-center justify-center gap-1.5 w-16 h-14 rounded-xl transition-all duration-200 cursor-pointer active:scale-90 ${
               activeTab === "schedule"
-                ? "text-blue-600 scale-105"
+                ? isSunlightMode
+                  ? "text-primary bg-sky-50 font-black scale-105 shadow-xs"
+                  : "text-secondary bg-sky-950/30 font-black scale-105"
                 : isSunlightMode
-                ? "text-slate-500"
-                : "text-slate-400"
+                ? "text-slate-500 hover:text-sky-650 hover:bg-sky-50/30"
+                : "text-slate-400 hover:text-sky-300 hover:bg-slate-900/50"
             }`}
           >
-            <Map className="w-6 h-6 stroke-[2.5]" />
+            <Map className="w-5 h-5 stroke-[2.5]" />
             <span className="text-[10px] font-black uppercase tracking-wider">Schedule</span>
           </button>
 
           <button
-            onClick={() => setActiveTab("saved")}
-            className={`flex flex-col items-center justify-center gap-1.5 w-20 h-14 rounded-xl active:scale-90 transition-all ${
-              activeTab === "saved"
-                ? "text-blue-600 scale-105"
+            onClick={() => setActiveTab("pnr")}
+            className={`flex flex-col items-center justify-center gap-1.5 w-16 h-14 rounded-xl transition-all duration-200 cursor-pointer active:scale-90 ${
+              activeTab === "pnr"
+                ? isSunlightMode
+                  ? "text-primary bg-sky-50 font-black scale-105 shadow-xs"
+                  : "text-secondary bg-sky-950/30 font-black scale-105"
                 : isSunlightMode
-                ? "text-slate-500"
-                : "text-slate-400"
+                ? "text-slate-500 hover:text-sky-650 hover:bg-sky-50/30"
+                : "text-slate-400 hover:text-sky-300 hover:bg-slate-900/50"
+            }`}
+          >
+            <Ticket className="w-5 h-5 stroke-[2.5]" />
+            <span className="text-[10px] font-black uppercase tracking-wider">PNR</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("saved")}
+            className={`flex flex-col items-center justify-center gap-1.5 w-16 h-14 rounded-xl transition-all duration-200 cursor-pointer active:scale-90 ${
+              activeTab === "saved"
+                ? isSunlightMode
+                  ? "text-primary bg-sky-50 font-black scale-105 shadow-xs"
+                  : "text-secondary bg-sky-950/30 font-black scale-105"
+                : isSunlightMode
+                ? "text-slate-500 hover:text-sky-650 hover:bg-sky-50/30"
+                : "text-slate-400 hover:text-sky-300 hover:bg-slate-900/50"
             }`}
           >
             <div className="relative">
-              <Bookmark className="w-6 h-6 stroke-[2.5]" />
+              <Bookmark className="w-5 h-5 stroke-[2.5]" />
               {savedTrains.length > 0 && (
-                <span className="absolute -top-1 -right-2 bg-blue-600 text-white text-[8px] font-black rounded-full h-4 w-4 flex items-center justify-center border border-white">
+                <span className="absolute -top-1 -right-2 bg-cta text-white text-[8px] font-black rounded-full h-4 w-4 flex items-center justify-center border border-white">
                   {savedTrains.length}
                 </span>
               )}
@@ -274,7 +312,7 @@ export default function RailRoverShell() {
 
         {/* Visual Home Indicator for PWA simulation */}
         <div
-          className={`h-2 flex justify-center items-center pb-1 transition-colors duration-300 ${
+          className={`h-2 flex justify-center items-center pb-1 transition-colors duration-500 ${
             isSunlightMode ? "bg-white" : "bg-slate-950"
           }`}
         >

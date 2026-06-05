@@ -47,8 +47,9 @@ export default function TrainSearch({
       if (results.length === 0) {
         setErrorMsg("No trains found for this route.");
       }
-    } catch (e) {
-      setErrorMsg("Failed to query train services. Please try again.");
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to query train services. Please try again.");
+      setTrains([]);
     } finally {
       setLoading(false);
     }
@@ -93,8 +94,10 @@ export default function TrainSearch({
       {/* Search Card Form */}
       <form
         onSubmit={handleSearch}
-        className={`p-4 rounded-2xl border-2 shadow-sm flex flex-col gap-4 relative transition-colors duration-300 ${
-          isSunlightMode ? "bg-white border-slate-200" : "bg-slate-800/60 border-slate-700"
+        className={`p-4 rounded-2xl border-2 shadow-xs flex flex-col gap-4 relative transition-colors duration-500 ${
+          isSunlightMode
+            ? "bg-white border-sky-100 shadow-sky-100/50"
+            : "bg-slate-900/40 border-sky-950/40"
         }`}
       >
         <div className="relative flex flex-col gap-2">
@@ -109,8 +112,10 @@ export default function TrainSearch({
                 value={fromStation}
                 onChange={(e) => setFromStation(e.target.value.toUpperCase())}
                 placeholder="Station Code (e.g. NDLS)"
-                className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide uppercase transition-all outline-none focus:border-blue-600 ${
-                  isSunlightMode ? "bg-slate-50 border-slate-300" : "bg-slate-900 border-slate-700"
+                className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide uppercase transition-all outline-none ${
+                  isSunlightMode
+                    ? "bg-sky-50/25 border-sky-100/80 focus:border-primary text-sky-950"
+                    : "bg-slate-950 border-sky-950 focus:border-secondary text-sky-100"
                 }`}
                 required
               />
@@ -123,10 +128,10 @@ export default function TrainSearch({
             <button
               type="button"
               onClick={handleSwap}
-              className={`p-2.5 rounded-full border-2 shadow-md active:scale-90 transition-transform ${
+              className={`p-2.5 rounded-full border-2 shadow-xs transition-all duration-200 cursor-pointer active:scale-90 ${
                 isSunlightMode
-                  ? "bg-white text-slate-800 border-slate-300"
-                  : "bg-slate-800 text-slate-100 border-slate-600"
+                  ? "bg-white text-slate-800 border-sky-100 hover:bg-sky-50 hover:text-primary"
+                  : "bg-slate-800 text-slate-100 border-sky-950/60 hover:bg-slate-750 hover:text-secondary"
               }`}
               title="Swap Stations"
             >
@@ -145,8 +150,10 @@ export default function TrainSearch({
                 value={toStation}
                 onChange={(e) => setToStation(e.target.value.toUpperCase())}
                 placeholder="Station Code (e.g. MMCT)"
-                className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide uppercase transition-all outline-none focus:border-blue-600 ${
-                  isSunlightMode ? "bg-slate-50 border-slate-300" : "bg-slate-900 border-slate-700"
+                className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide uppercase transition-all outline-none ${
+                  isSunlightMode
+                    ? "bg-sky-50/25 border-sky-100/80 focus:border-primary text-sky-950"
+                    : "bg-slate-950 border-sky-950 focus:border-secondary text-sky-100"
                 }`}
                 required
               />
@@ -166,8 +173,10 @@ export default function TrainSearch({
               value={date}
               onChange={(e) => setDate(e.target.value)}
               placeholder="DD-MM-YYYY"
-              className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide transition-all outline-none focus:border-blue-600 ${
-                isSunlightMode ? "bg-slate-50 border-slate-300" : "bg-slate-900 border-slate-700"
+              className={`w-full px-4 py-3 rounded-xl border-2 font-extrabold text-base tracking-wide transition-all outline-none ${
+                isSunlightMode
+                  ? "bg-sky-50/25 border-sky-100/80 focus:border-primary text-sky-950"
+                  : "bg-slate-950 border-sky-950 focus:border-secondary text-sky-100"
               }`}
               required
             />
@@ -179,10 +188,10 @@ export default function TrainSearch({
         <button
           type="submit"
           disabled={loading}
-          className={`w-full py-4 px-6 rounded-xl font-extrabold tracking-wider uppercase text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+          className={`w-full py-4 px-6 rounded-xl font-extrabold tracking-wider uppercase text-base flex items-center justify-center gap-2 transition-all duration-200 active:scale-[0.98] cursor-pointer ${
             isSunlightMode
-              ? "bg-slate-900 hover:bg-slate-800 text-white"
-              : "bg-blue-600 hover:bg-blue-500 text-white"
+              ? "bg-cta hover:bg-orange-650 text-white shadow-xs shadow-orange-100"
+              : "bg-cta hover:bg-orange-650 text-white shadow-md shadow-orange-950/10"
           }`}
         >
           {loading ? (
@@ -216,13 +225,15 @@ export default function TrainSearch({
               <div
                 key={i}
                 className={`h-40 rounded-2xl border-2 animate-pulse ${
-                  isSunlightMode ? "bg-white border-slate-200" : "bg-slate-800/40 border-slate-700"
+                  isSunlightMode ? "bg-white border-sky-100" : "bg-slate-900/30 border-sky-950/40"
                 }`}
               />
             ))}
           </div>
         ) : errorMsg ? (
-          <div className="text-center py-10 px-4 border-2 border-dashed border-slate-300 rounded-2xl">
+          <div className={`text-center py-10 px-4 border-2 border-dashed rounded-2xl ${
+            isSunlightMode ? "border-sky-100 bg-sky-50/10" : "border-sky-950/40 bg-slate-950/20"
+          }`}>
             <p className="font-extrabold text-slate-700">{errorMsg}</p>
             <p className="text-xs text-slate-400 mt-1">
               Verify the station codes and try searching again.
@@ -234,24 +245,28 @@ export default function TrainSearch({
             return (
               <div
                 key={train.trainNo}
-                className={`rounded-2xl border-2 p-4 flex flex-col gap-3.5 shadow-sm transition-all relative ${
+                className={`rounded-2xl border-2 p-4 flex flex-col gap-3.5 shadow-xs transition-all duration-300 relative ${
                   isSunlightMode
-                    ? "bg-white border-slate-200 hover:border-slate-400"
-                    : "bg-slate-800 border-slate-700 hover:border-slate-500"
+                    ? "bg-white border-sky-100 hover:border-primary hover:shadow-md hover:shadow-sky-100/30"
+                    : "bg-slate-900/30 border-sky-950/40 hover:border-secondary hover:bg-slate-900/60"
                 }`}
               >
                 {/* Top Train Details */}
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black tracking-widest text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
+                      <span className={`text-[10px] font-black tracking-widest px-2 py-0.5 rounded ${
+                        isSunlightMode ? "text-primary bg-sky-50" : "text-sky-350 bg-sky-950/40"
+                      }`}>
                         {train.trainNo}
                       </span>
                       <span className="text-xs font-bold text-slate-500">
                         {train.sourceStationCode} → {train.destinationStationCode}
                       </span>
                     </div>
-                    <h4 className="text-base font-black tracking-tight mt-1 text-slate-900 dark:text-white uppercase">
+                    <h4 className={`text-base font-black tracking-tight mt-1 uppercase ${
+                      isSunlightMode ? "text-sky-950" : "text-sky-100"
+                    }`}>
                       {train.trainName}
                     </h4>
                   </div>
@@ -259,10 +274,12 @@ export default function TrainSearch({
                   {/* Bookmark Button */}
                   <button
                     onClick={() => onToggleSave(train.trainNo)}
-                    className={`p-2 rounded-full border transition-all active:scale-90 ${
+                    className={`p-2 rounded-full border transition-all duration-200 cursor-pointer active:scale-90 ${
                       isPinned
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "bg-transparent border-slate-300 text-slate-400"
+                        ? "bg-cta border-cta text-white"
+                        : isSunlightMode
+                        ? "bg-transparent border-sky-200 text-sky-400 hover:bg-sky-50/50"
+                        : "bg-transparent border-sky-950/50 text-sky-700 hover:bg-sky-950/30"
                     }`}
                   >
                     <Bookmark className="w-4 h-4 fill-current stroke-[2.5]" />
@@ -271,12 +288,14 @@ export default function TrainSearch({
 
                 {/* Mid details (Times and travel times) */}
                 <div
-                  className={`grid grid-cols-3 items-center rounded-xl p-3 border ${
-                    isSunlightMode ? "bg-slate-50 border-slate-200" : "bg-slate-900 border-slate-700"
+                  className={`grid grid-cols-3 items-center rounded-xl p-3 border transition-colors duration-300 ${
+                    isSunlightMode ? "bg-sky-50/25 border-sky-100/60" : "bg-slate-950/45 border-sky-950/30"
                   }`}
                 >
                   <div className="flex flex-col">
-                    <span className="text-xl font-black text-slate-900 dark:text-white">
+                    <span className={`text-xl font-black ${
+                      isSunlightMode ? "text-sky-950" : "text-sky-100"
+                    }`}>
                       {train.fromTime}
                     </span>
                     <span className="text-[10px] font-extrabold text-slate-500 uppercase">
@@ -284,8 +303,12 @@ export default function TrainSearch({
                     </span>
                   </div>
 
-                  <div className="flex flex-col items-center justify-center border-x border-slate-300">
-                    <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                  <div className={`flex flex-col items-center justify-center border-x ${
+                    isSunlightMode ? "border-sky-100/60" : "border-sky-950/50"
+                  }`}>
+                    <span className={`text-xs font-black ${
+                      isSunlightMode ? "text-sky-900" : "text-sky-200"
+                    }`}>
                       {train.travelTime}
                     </span>
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
@@ -294,7 +317,9 @@ export default function TrainSearch({
                   </div>
 
                   <div className="flex flex-col items-right text-right">
-                    <span className="text-xl font-black text-slate-900 dark:text-white">
+                    <span className={`text-xl font-black ${
+                      isSunlightMode ? "text-sky-950" : "text-sky-100"
+                    }`}>
                       {train.toTime}
                     </span>
                     <span className="text-[10px] font-extrabold text-slate-500 uppercase">
@@ -310,7 +335,11 @@ export default function TrainSearch({
                   {/* View Schedule button */}
                   <button
                     onClick={() => onViewSchedule(train.trainNo)}
-                    className="flex items-center gap-1 text-xs font-black uppercase text-blue-600 bg-blue-50 px-3.5 py-2.5 rounded-xl border border-blue-200 active:scale-95 transition-transform"
+                    className={`flex items-center gap-1 text-xs font-black uppercase px-3.5 py-2.5 rounded-xl border active:scale-95 transition-all duration-200 cursor-pointer ${
+                      isSunlightMode
+                        ? "text-primary bg-sky-50 border-sky-100 hover:bg-primary hover:text-white"
+                        : "text-secondary bg-sky-950/30 border-sky-950/40 hover:bg-secondary hover:text-slate-950"
+                    }`}
                   >
                     <span>Timeline</span>
                     <ChevronRight className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -321,7 +350,9 @@ export default function TrainSearch({
           })
         ) : (
           !searched && (
-            <div className="text-center py-16 px-6 border-2 border-dashed border-slate-300 rounded-2xl">
+            <div className={`text-center py-16 px-6 border-2 border-dashed rounded-2xl ${
+              isSunlightMode ? "border-sky-100 bg-sky-50/10" : "border-sky-950/40 bg-slate-950/20"
+            }`}>
               <Train className="w-10 h-10 text-slate-300 mx-auto mb-3" />
               <p className="font-extrabold text-slate-700">Find Train Schedule</p>
               <p className="text-xs text-slate-400 mt-1 max-w-[200px] mx-auto">

@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
 @theme {
+  --color-primary: #0ea5e9;
+  --color-secondary: #38bdf8;
+  --color-cta: #f97316;
+  --color-bg-light: #f0f9ff;
+  --color-text-light: #0c4a6e;
+  
+  --color-bg-dark: #031525;
+  --color-text-dark: #f0f9ff;
+
   --color-sunlight-bg: #f8fafc;
   --color-sunlight-text: #0f172a;
   --color-sunlight-card: #ffffff;
