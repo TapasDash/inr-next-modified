@@ -17,6 +17,10 @@ export const getRandomUserAgent = (): string => {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 };
 
+// Railrover NTES Proxy API base URL
+export const RAILROVER_API_BASE = process.env.RAILROVER_API_BASE || "https://inr-api-worker.railroverr.workers.dev";
+
+
 // Generic fetch with strict typing and 5-minute cache
 export const fetchData = async <T>(url: string): Promise<T> => {
   const response = await fetch(url, {

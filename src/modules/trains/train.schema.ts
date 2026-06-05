@@ -58,10 +58,63 @@ export const RouteStationSchema = z.object({
   zone: z.string(),
 });
 
+// Live Train Status schema
+export const LiveTrainHaltSchema = z.object({
+  stationCode: z.string(),
+  stationName: z.string(),
+  scheduledArrival: z.string(),
+  scheduledDeparture: z.string(),
+  actualArrival: z.string(),
+  actualDeparture: z.string(),
+  delayArrival: z.number(),
+  delayDeparture: z.number(),
+  status: z.enum(["yet_to_arrive", "arrived", "departed", "cancelled"]),
+  platform: z.string(),
+});
+
+export const LiveTrainStatusSchema = z.object({
+  trainNo: z.string(),
+  trainName: z.string(),
+  lastUpdated: z.string(),
+  currentStationCode: z.string(),
+  currentStationName: z.string(),
+  currentStatus: z.string(),
+  delayMinutes: z.number(),
+  route: z.array(LiveTrainHaltSchema),
+});
+
+// Live Station Status schema
+export const LiveStationTrainSchema = z.object({
+  trainNo: z.string(),
+  trainName: z.string(),
+  route: z.string(),
+  trainType: z.string(),
+  classes: z.array(z.string()),
+  scheduledArrival: z.string(),
+  actualArrival: z.string(),
+  delayArrival: z.number(),
+  scheduledDeparture: z.string(),
+  actualDeparture: z.string(),
+  delayDeparture: z.number(),
+  platform: z.string(),
+});
+
+export const LiveStationStatusSchema = z.object({
+  stationCode: z.string(),
+  stationName: z.string(),
+  hours: z.number(),
+  toStationCode: z.string().optional(),
+  trains: z.array(LiveStationTrainSchema),
+});
+
 // Inferred TypeScript types
 export type TrainData = z.infer<typeof TrainDataSchema>;
 export type TrainInfo = z.infer<typeof TrainInfoSchema>;
 export type RouteStation = z.infer<typeof RouteStationSchema>;
+export type LiveTrainHalt = z.infer<typeof LiveTrainHaltSchema>;
+export type LiveTrainStatus = z.infer<typeof LiveTrainStatusSchema>;
+export type LiveStationTrain = z.infer<typeof LiveStationTrainSchema>;
+export type LiveStationStatus = z.infer<typeof LiveStationStatusSchema>;
 
 // Standard API response type
 export type ApiResponse<T> = {
@@ -71,3 +124,4 @@ export type ApiResponse<T> = {
   statusCode?: number;
   timestamp: number;
 };
+

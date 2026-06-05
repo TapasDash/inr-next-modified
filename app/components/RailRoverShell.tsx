@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Map, Bookmark, Sun, Smartphone, Wifi, Clock, Ticket } from "lucide-react";
+import { Search, Map, Bookmark, Sun, Smartphone, Wifi, Clock, Ticket, Radio } from "lucide-react";
 import TrainSearch from "@/app/components/TrainSearch";
 import TrainSchedule from "@/app/components/TrainSchedule";
 import PnrStatus from "@/app/components/PnrStatus";
+import LiveStation from "@/app/components/LiveStation";
 
-type TabType = "search" | "schedule" | "pnr" | "saved";
+type TabType = "search" | "schedule" | "station" | "pnr" | "saved";
 
 export default function RailRoverShell() {
   const [activeTab, setActiveTab] = useState<TabType>("search");
@@ -161,6 +162,12 @@ export default function RailRoverShell() {
                   savedTrains={savedTrains}
                 />
               )}
+              {activeTab === "station" && (
+                <LiveStation
+                  isSunlightMode={isSunlightMode}
+                  onViewSchedule={handleViewSchedule}
+                />
+              )}
               {activeTab === "pnr" && (
                 <PnrStatus isSunlightMode={isSunlightMode} />
               )}
@@ -268,6 +275,22 @@ export default function RailRoverShell() {
           >
             <Map className="w-5 h-5 stroke-[2.5]" />
             <span className="text-[10px] font-black uppercase tracking-wider">Schedule</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("station")}
+            className={`flex flex-col items-center justify-center gap-1.5 w-16 h-14 rounded-xl transition-all duration-200 cursor-pointer active:scale-90 ${
+              activeTab === "station"
+                ? isSunlightMode
+                  ? "text-primary bg-sky-50 font-black scale-105 shadow-xs"
+                  : "text-secondary bg-sky-950/30 font-black scale-105"
+                : isSunlightMode
+                ? "text-slate-500 hover:text-sky-650 hover:bg-sky-50/30"
+                : "text-slate-400 hover:text-sky-300 hover:bg-slate-900/50"
+            }`}
+          >
+            <Radio className="w-5 h-5 stroke-[2.5]" />
+            <span className="text-[10px] font-black uppercase tracking-wider">Station</span>
           </button>
 
           <button
