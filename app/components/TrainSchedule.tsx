@@ -1,9 +1,127 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, Clock, Route, Bookmark, AlertCircle, RefreshCw, Radio } from "lucide-react";
+import { Search, Clock, Route, Bookmark, AlertCircle, RefreshCw, Radio, Calendar } from "lucide-react";
 import type { TrainInfo, RouteStation, LiveTrainStatus, LiveTrainHalt } from "@/modules/trains/train.schema";
 import { apiGetTrainDetails, apiGetLiveTrainStatus } from "../utils/mockData";
+
+// Helper to parse time in HH:MM format to minutes from midnight
+function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr || timeStr === "Source" || timeStr === "Destination" || timeStr.includes("--")) {
+    return 0;
+  }
+  const [hStr, mStr] = timeStr.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (isNaN(h) || isNaN(m)) return 0;
+  return h * 60 + m;
+}
+
+// Helper to get current Indian Standard Time (IST) hours and minutes
+function getCurrentISTTime(): { hours: number; minutes: number } {
+  const now = new Date();
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Kolkata",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const formatted = formatter.format(now);
+    const [h, m] = formatted.split(":").map(Number);
+    return { hours: h, minutes: m };
+  } catch (e) {
+    return { hours: now.getHours(), minutes: now.getMinutes() };
+  }
+}
+
+// Calculate the active station index based on current time (fallback)
+function calculateCurrentStationIndex(route: RouteStation[]): number {
+  if (!route || route.length === 0) return 0;
+
+  const stationTimes = route.map((station) => {
+    const day = parseInt(station.day, 10) || 1;
+    const dayOffset = (day - 1) * 24 * 60;
+    
+    const arrMin = parseTimeToMinutes(station.arrival);
+    const depMin = parseTimeToMinutes(station.departure);
+    
+    return {
+      arrival: dayOffset + (station.arrival === "Source" ? depMin : arrMin),
+      departure: dayOffset + (station.departure === "Destination" ? arrMin : depMin),
+    };
+  });
+
+  const firstStationDep = stationTimes[0].departure;
+  const lastStationArr = stationTimes[stationTimes.length - 1].arrival;
+
+  const { hours, minutes } = getCurrentISTTime();
+  const currentDayMins = hours * 60 + minutes;
+  
+  let bestOffset = 0;
+  let minDistance = Infinity;
+
+  // We check if the train started yesterday (-2 or -1), today (0), or tomorrow (+1)
+  for (const dayDiff of [-2, -1, 0, 1]) {
+    const offset = -dayDiff * 24 * 60 + currentDayMins;
+    
+    if (offset >= firstStationDep && offset <= lastStationArr) {
+      bestOffset = offset;
+      break;
+    }
+    
+    let dist = 0;
+    if (offset < firstStationDep) {
+      dist = firstStationDep - offset;
+    } else {
+      dist = offset - lastStationArr;
+    }
+    
+    if (dist < minDistance) {
+      minDistance = dist;
+      bestOffset = offset;
+    }
+  }
+
+  for (let i = 0; i < stationTimes.length; i++) {
+    const { arrival, departure } = stationTimes[i];
+    
+    if (i === 0 && bestOffset <= departure) {
+      return 0;
+    }
+    
+    if (i === stationTimes.length - 1 && bestOffset >= arrival) {
+      return stationTimes.length - 1;
+    }
+    
+    if (bestOffset >= arrival && bestOffset <= departure) {
+      return i;
+    }
+    
+    if (i < stationTimes.length - 1) {
+      const nextArrival = stationTimes[i + 1].arrival;
+      if (bestOffset > departure && bestOffset < nextArrival) {
+        return i + 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
+// Generate offset date string in DD-MM-YYYY format
+function getOffsetDateString(offset: string): string {
+  const target = new Date();
+  if (offset === "yesterday") {
+    target.setDate(target.getDate() - 1);
+  } else if (offset === "tomorrow") {
+    target.setDate(target.getDate() + 1);
+  }
+  const day = String(target.getDate()).padStart(2, "0");
+  const month = String(target.getMonth() + 1).padStart(2, "0");
+  const year = target.getFullYear();
+  return `${day}-${month}-${year}`;
+}
 
 interface TrainScheduleProps {
   initialTrainNo?: string;
@@ -30,8 +148,8 @@ export default function TrainSchedule({
   const [liveErrorMsg, setLiveErrorMsg] = useState("");
   const [liveDate, setLiveDate] = useState("");
 
-  // Static timeline simulation fallback state
-  const [simulatedCurrentIndex, setSimulatedCurrentIndex] = useState<number>(1);
+  // User simulated/selected manual active station override
+  const [userSimulatedIndex, setUserSimulatedIndex] = useState<number | null>(null);
 
   // Set default live date to today in DD-MM-YYYY format
   useEffect(() => {
@@ -45,8 +163,9 @@ export default function TrainSchedule({
   useEffect(() => {
     if (initialTrainNo) {
       setTrainNo(initialTrainNo);
-      setIsLiveTracking(false); // Reset to static first
+      setIsLiveTracking(false);
       setLiveStatus(null);
+      setUserSimulatedIndex(null);
       fetchSchedule(initialTrainNo);
     }
   }, [initialTrainNo]);
@@ -54,8 +173,9 @@ export default function TrainSchedule({
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!trainNo.trim()) return;
-    setIsLiveTracking(false); // Reset live state on new search
+    setIsLiveTracking(false);
     setLiveStatus(null);
+    setUserSimulatedIndex(null);
     fetchSchedule(trainNo.trim());
   };
 
@@ -63,12 +183,26 @@ export default function TrainSchedule({
     setLoading(true);
     setErrorMsg("");
     setSchedule(null);
+    setLiveStatus(null);
+    setLiveErrorMsg("");
+    setUserSimulatedIndex(null);
 
     try {
       const data = await apiGetTrainDetails(num);
       if (data) {
         setSchedule(data);
-        setSimulatedCurrentIndex(1); // Default to the 2nd station for simulation
+        
+        // Use liveDate if populated, otherwise generate today's date
+        let targetDate = liveDate;
+        if (!targetDate) {
+          const today = new Date();
+          const day = String(today.getDate()).padStart(2, "0");
+          const month = String(today.getMonth() + 1).padStart(2, "0");
+          const year = today.getFullYear();
+          targetDate = `${day}-${month}-${year}`;
+        }
+        
+        fetchLiveRunningStatus(num, targetDate);
       } else {
         setErrorMsg("Train schedule not found. Try searching 12952, 12002, or 12010.");
       }
@@ -87,6 +221,7 @@ export default function TrainSchedule({
       const liveData = await apiGetLiveTrainStatus(num, date);
       if (liveData) {
         setLiveStatus(liveData);
+        setIsLiveTracking(true); // Automatically enable live tracking
       } else {
         setLiveErrorMsg("Failed to retrieve live running status for this date.");
       }
@@ -119,16 +254,22 @@ export default function TrainSchedule({
   const isPinned = schedule ? savedTrains.includes(schedule.info.trainNo) : false;
 
   // Determine current active station index for timeline highlight
-  let currentActiveIndex = simulatedCurrentIndex;
-  if (isLiveTracking && liveStatus) {
-    const idx = liveStatus.route.findIndex(
-      (station) => station.stationCode === liveStatus.currentStationCode
-    );
-    currentActiveIndex = idx !== -1 ? idx : 0;
+  let currentActiveIndex = 0;
+  if (userSimulatedIndex !== null) {
+    currentActiveIndex = userSimulatedIndex;
+  } else if (schedule) {
+    if (liveStatus && liveStatus.currentStationCode && liveStatus.currentStationCode !== "YET") {
+      const idx = schedule.route.findIndex(
+        (station) => station.sourceStationCode.trim().toUpperCase() === liveStatus.currentStationCode.trim().toUpperCase()
+      );
+      currentActiveIndex = idx !== -1 ? idx : calculateCurrentStationIndex(schedule.route);
+    } else {
+      currentActiveIndex = calculateCurrentStationIndex(schedule.route);
+    }
   }
 
   // Length helper for timeline routing path height
-  const routeLength = isLiveTracking && liveStatus ? liveStatus.route.length : (schedule?.route.length || 1);
+  const routeLength = schedule?.route.length || 1;
 
   return (
     <div className="flex flex-col gap-4 h-full">
@@ -242,46 +383,136 @@ export default function TrainSchedule({
           </div>
 
           {/* Live NTES Toggle Panel */}
-          <div className={`mt-4 pt-3 border-t flex justify-between items-center ${
+          <div className={`mt-4 pt-3 border-t flex flex-col gap-3.5 ${
             isSunlightMode ? "border-sky-100" : "border-sky-950/50"
           }`}>
-            <div className="flex items-center gap-1.5">
-              <Radio className={`w-4 h-4 ${isLiveTracking ? "text-emerald-500 animate-pulse" : "text-slate-400"}`} />
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                Live NTES Status
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {isLiveTracking && (
+            <div className="flex justify-between items-center w-full">
+              <div className="flex items-center gap-1.5">
+                <Radio className={`w-4 h-4 ${isLiveTracking ? "text-emerald-500 animate-pulse" : "text-slate-400"}`} />
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Live NTES Status
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {isLiveTracking && (
+                  <button
+                    type="button"
+                    onClick={handleRefreshLive}
+                    disabled={liveLoading}
+                    className={`p-1.5 rounded-lg border transition-all ${
+                      isSunlightMode
+                        ? "border-sky-100 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        : "border-sky-950/60 bg-slate-955 text-sky-300 hover:bg-slate-900"
+                    }`}
+                    title="Refresh Running Status"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${liveLoading ? "animate-spin" : ""}`} />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleRefreshLive}
+                  onClick={handleToggleLive}
                   disabled={liveLoading}
-                  className={`p-1.5 rounded-lg border transition-all ${
-                    isSunlightMode
-                      ? "border-sky-100 bg-sky-50 text-sky-700 hover:bg-sky-100"
-                      : "border-sky-950/60 bg-slate-950 text-sky-300 hover:bg-slate-900"
+                  className={`px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 cursor-pointer ${
+                    isLiveTracking
+                      ? "bg-emerald-500 text-white shadow-xs"
+                      : isSunlightMode
+                      ? "bg-sky-50 text-slate-600 border border-sky-100 hover:bg-sky-100"
+                      : "bg-slate-955 text-slate-400 border border-sky-950/60 hover:bg-slate-900"
                   }`}
-                  title="Refresh Running Status"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${liveLoading ? "animate-spin" : ""}`} />
+                  {isLiveTracking ? "Live ON" : "Live OFF"}
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={handleToggleLive}
-                disabled={liveLoading}
-                className={`px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-200 active:scale-95 cursor-pointer ${
-                  isLiveTracking
-                    ? "bg-emerald-500 text-white shadow-xs"
-                    : isSunlightMode
-                    ? "bg-sky-50 text-slate-600 border border-sky-100 hover:bg-sky-100"
-                    : "bg-slate-950 text-slate-400 border border-sky-950/60 hover:bg-slate-900"
-                }`}
-              >
-                {isLiveTracking ? "Live ON" : "Live OFF"}
-              </button>
+              </div>
             </div>
+
+            {/* Expandable Date selection panel */}
+            {isLiveTracking && (
+              <div className={`mt-1 pt-3 border-t border-dashed flex flex-col gap-2.5 ${
+                isSunlightMode ? "border-sky-100" : "border-sky-950/40"
+              }`}>
+                <div className="flex justify-between items-center">
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-500">
+                    Track Journey Date
+                  </label>
+                  {liveStatus && (
+                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
+                      isSunlightMode ? "bg-emerald-100 text-emerald-800" : "bg-emerald-950/50 text-emerald-300"
+                    }`}>
+                      Current Date: {liveDate}
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder="DD-MM-YYYY"
+                      value={liveDate}
+                      onChange={(e) => {
+                        const newDate = e.target.value;
+                        setLiveDate(newDate);
+                        if (/^\d{2}-\d{2}-\d{4}$/.test(newDate)) {
+                          fetchLiveRunningStatus(schedule.info.trainNo, newDate);
+                        }
+                      }}
+                      className={`w-full px-3.5 py-2.5 pr-10 rounded-xl border-2 font-extrabold text-sm tracking-wide transition-all outline-none focus:border-primary ${
+                        isSunlightMode
+                          ? "bg-sky-50/25 border-sky-100 text-sky-955"
+                          : "bg-slate-955 border-sky-950 text-sky-100"
+                      }`}
+                    />
+                    <Calendar className="w-4 h-4 absolute right-3 top-3.5 text-slate-400" />
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={handleRefreshLive}
+                    disabled={liveLoading}
+                    className={`px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center transition-all cursor-pointer active:scale-95 ${
+                      isSunlightMode
+                        ? "bg-primary hover:bg-sky-500 text-white"
+                        : "bg-secondary hover:bg-sky-300 text-slate-950"
+                    }`}
+                  >
+                    {liveLoading ? (
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    ) : (
+                      "Track"
+                    )}
+                  </button>
+                </div>
+
+                {/* Quick selectors: Yesterday, Today, Tomorrow */}
+                <div className="flex gap-2">
+                  {["yesterday", "today", "tomorrow"].map((dayOffset) => {
+                    const label = dayOffset.toUpperCase();
+                    const targetDateStr = getOffsetDateString(dayOffset);
+                    const isSelected = liveDate === targetDateStr;
+
+                    return (
+                      <button
+                        key={dayOffset}
+                        type="button"
+                        onClick={() => {
+                          setLiveDate(targetDateStr);
+                          fetchLiveRunningStatus(schedule.info.trainNo, targetDateStr);
+                        }}
+                        className={`flex-1 py-2 px-2.5 rounded-xl text-[10px] font-black tracking-wider transition-all cursor-pointer border ${
+                          isSelected
+                            ? "bg-cta border-cta text-white"
+                            : isSunlightMode
+                            ? "bg-sky-50/55 border-sky-100 text-sky-700 hover:bg-sky-100"
+                            : "bg-slate-950 border-sky-950/60 text-slate-400 hover:bg-slate-900"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -408,99 +639,111 @@ export default function TrainSchedule({
 
             {/* Timeline cards */}
             <div className="flex flex-col gap-5">
-              {isLiveTracking && liveStatus ? (
-                // Live Timeline view
-                liveStatus.route.map((station: LiveTrainHalt, idx: number) => {
-                  const isPassed = idx <= currentActiveIndex;
-                  const isCurrent = idx === currentActiveIndex;
-                  const isSource = idx === 0;
-                  const isDestination = idx === liveStatus.route.length - 1;
+              {schedule.route.map((station, idx) => {
+                const isPassed = idx < currentActiveIndex;
+                const isCurrent = idx === currentActiveIndex;
+                const isSource = idx === 0;
+                const isDestination = idx === schedule.route.length - 1;
+                const mockPlatform = String((idx % 4) + 1);
 
-                  // Render delay details
-                  const activeDelay = Math.max(station.delayArrival, station.delayDeparture);
-                  const isDelayed = activeDelay > 0;
-                  const isCancelled = station.status === "cancelled";
+                // Find matching live halt if liveStatus is available
+                const liveHalt = liveStatus?.route.find(
+                  (h) => h.stationCode.trim().toUpperCase() === station.sourceStationCode.trim().toUpperCase()
+                );
 
-                  return (
+                const activePlatform = liveHalt?.platform && liveHalt.platform !== "--" ? liveHalt.platform : mockPlatform;
+                const activeDelay = liveHalt ? Math.max(liveHalt.delayArrival, liveHalt.delayDeparture) : 0;
+                const isDelayed = activeDelay > 0;
+                const isCancelled = liveHalt?.status === "cancelled";
+
+                // Map state status
+                const haltStatus = liveHalt 
+                  ? liveHalt.status 
+                  : (isPassed ? "departed" : (isCurrent ? "arrived" : "yet_to_arrive"));
+
+                return (
+                  <div
+                    key={station.sourceStationCode}
+                    onClick={() => setUserSimulatedIndex(idx)}
+                    className="relative flex items-start gap-4 cursor-pointer group"
+                  >
+                    {/* Node bullet */}
+                    <div className="absolute -left-0.5 mt-1.5 flex items-center justify-center z-10">
+                      {isCurrent ? (
+                        <div className="relative flex items-center justify-center">
+                          <span className="absolute inline-flex h-6 w-6 rounded-full bg-emerald-400 opacity-35 animate-ping"></span>
+                          <span className={`rounded-full h-4.5 w-4.5 border-4 border-emerald-500 transition-all duration-300 ${
+                            isSunlightMode ? "bg-white" : "bg-slate-955"
+                          }`} />
+                        </div>
+                      ) : (
+                        <span
+                          className={`rounded-full h-3.5 w-3.5 border-2 transition-all duration-300 ${
+                            isPassed
+                              ? "bg-emerald-500 border-emerald-500 scale-110"
+                              : isSunlightMode
+                              ? "bg-white border-sky-200"
+                              : "bg-slate-955 border-sky-950"
+                          }`}
+                        />
+                      )}
+                    </div>
+
+                    {/* Timeline card details */}
                     <div
-                      key={station.stationCode}
-                      className="relative flex items-start gap-4"
+                      className={`flex-1 p-3.5 rounded-xl border-2 transition-all duration-300 ${
+                        isCurrent
+                          ? "border-emerald-500 bg-emerald-500/5 shadow-xs"
+                          : isSunlightMode
+                          ? "bg-white border-sky-100 hover:border-sky-200"
+                          : "bg-slate-900/30 border-sky-950/40 hover:border-sky-900/50"
+                      }`}
                     >
-                      {/* Node bullet */}
-                      <div className="absolute -left-0.5 mt-1.5 flex items-center justify-center z-10">
-                        {isCurrent ? (
-                          <div className="relative flex items-center justify-center">
-                            <span className="absolute inline-flex h-7 w-7 rounded-full bg-emerald-400 opacity-75 live-pulse"></span>
-                            <span className="relative rounded-full h-4 w-4 bg-emerald-500 border-2 border-white"></span>
-                          </div>
-                        ) : (
-                          <span
-                            className={`rounded-full h-3 w-3 border-2 transition-all duration-300 ${
-                              isPassed
-                                ? "bg-emerald-500 border-emerald-500 scale-110"
-                                : isSunlightMode
-                                ? "bg-white border-sky-200"
-                                : "bg-slate-955 border-sky-950"
-                            }`}
-                          />
-                        )}
-                      </div>
-
-                      {/* Station card details */}
-                      <div
-                        className={`flex-1 p-3.5 rounded-xl border-2 transition-all duration-300 ${
-                          isCurrent
-                            ? "border-emerald-500 bg-emerald-500/5 shadow-xs"
-                            : isSunlightMode
-                            ? "bg-white border-sky-100"
-                            : "bg-slate-900/30 border-sky-950/40"
-                        }`}
-                      >
-                        <div className="flex justify-between items-center gap-2">
-                          <div>
-                            <span className="text-[9px] font-black uppercase text-slate-400">
-                              {isSource ? "SOURCE" : isDestination ? "DESTINATION" : `STOP ${idx}`}
-                            </span>
-                            <h4 className={`text-sm font-black tracking-tight uppercase ${
-                              isSunlightMode ? "text-sky-955" : "text-sky-100"
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-black uppercase text-slate-400">
+                            {isSource ? "SOURCE" : isDestination ? "DESTINATION" : `STOP ${idx}`}
+                          </span>
+                          <h4 className={`text-sm font-black tracking-tight uppercase truncate ${
+                            isSunlightMode ? "text-sky-955" : "text-sky-100"
+                          }`}>
+                            {station.sourceStationName}
+                          </h4>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                              isSunlightMode ? "text-primary bg-sky-50" : "text-sky-300 bg-sky-950/40"
                             }`}>
-                              {station.stationName}
-                            </h4>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
-                                isSunlightMode ? "text-primary bg-sky-50" : "text-sky-300 bg-sky-950/40"
-                              }`}>
-                                {station.stationCode}
-                              </span>
-                              
-                              {/* Station Status Badge */}
-                              <span className={`text-[9px] font-black uppercase px-1 py-0.2 rounded border ${
-                                isCancelled
-                                  ? "bg-red-50 text-red-650 border-red-100"
-                                  : isCurrent
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                                  : isPassed
-                                  ? "bg-slate-100 text-slate-500 border-slate-200"
-                                  : "bg-transparent text-slate-400 border-slate-300"
-                              }`}>
-                                {station.status.replace("_", " ")}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Platform Badge */}
-                          <div className="flex flex-col items-end">
-                            <span
-                              className={`px-2.5 py-1 text-xs font-black rounded-lg uppercase tracking-wider ${
-                                isSunlightMode
-                                  ? "bg-primary text-white"
-                                  : "bg-secondary text-slate-950"
-                              }`}
-                            >
-                              PF {station.platform || "--"}
+                              {station.sourceStationCode}
                             </span>
-                            
-                            {/* Delay badge */}
+                            {/* Status badge */}
+                            <span className={`text-[9px] font-black uppercase px-1 py-0.2 rounded border ${
+                              isCancelled
+                                ? "bg-red-50 text-red-655 border-red-100"
+                                : isCurrent
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                : isPassed
+                                ? "bg-slate-100 text-slate-500 border-slate-200"
+                                : isSunlightMode
+                                ? "bg-transparent text-slate-400 border-slate-300"
+                                : "bg-transparent text-slate-400 border-sky-950/40"
+                            }`}>
+                              {haltStatus.replace("_", " ")}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Platform Badge */}
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <span
+                            className={`px-2.5 py-1 text-xs font-black rounded-lg uppercase tracking-wider ${
+                              isSunlightMode
+                                ? "bg-primary text-white"
+                                : "bg-secondary text-slate-950"
+                            }`}
+                          >
+                            PF {activePlatform}
+                          </span>
+                          {liveHalt ? (
                             <span className={`text-[9px] font-black mt-1 ${
                               isCancelled
                                 ? "text-red-500"
@@ -510,159 +753,60 @@ export default function TrainSchedule({
                             }`}>
                               {isCancelled ? "CANCELLED" : isDelayed ? `+${activeDelay} min` : "ON TIME"}
                             </span>
-                          </div>
-                        </div>
-
-                        {/* Timings row */}
-                        <div className={`grid grid-cols-2 gap-4 mt-3 pt-2.5 border-t text-xs ${
-                          isSunlightMode ? "border-sky-50" : "border-sky-950/20"
-                        }`}>
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase">
-                                Arrival
-                              </span>
-                              <span className={`font-extrabold ${isSunlightMode ? "text-sky-900" : "text-sky-100"}`}>
-                                {station.actualArrival === "--:--" ? station.scheduledArrival : station.actualArrival}
-                              </span>
-                              <span className="text-[8px] text-slate-400">
-                                Sch: {station.scheduledArrival}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase">
-                                Departure
-                              </span>
-                              <span className={`font-extrabold ${isSunlightMode ? "text-sky-900" : "text-sky-100"}`}>
-                                {station.actualDeparture === "--:--" ? station.scheduledDeparture : station.actualDeparture}
-                              </span>
-                              <span className="text-[8px] text-slate-400">
-                                Sch: {station.scheduledDeparture}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                // Static timeline view
-                schedule.route.map((station, idx) => {
-                  const isPassed = idx <= currentActiveIndex;
-                  const isCurrent = idx === currentActiveIndex;
-                  const isSource = idx === 0;
-                  const isDestination = idx === schedule.route.length - 1;
-                  const mockPlatform = String((idx % 4) + 1);
-
-                  return (
-                    <div
-                      key={station.sourceStationCode}
-                      onClick={() => setSimulatedCurrentIndex(idx)}
-                      className="relative flex items-start gap-4 cursor-pointer group"
-                    >
-                      {/* Node bullet */}
-                      <div className="absolute -left-0.5 mt-1.5 flex items-center justify-center z-10">
-                        {isCurrent ? (
-                          <div className="relative flex items-center justify-center">
-                            <span className="absolute inline-flex h-7 w-7 rounded-full bg-emerald-400 opacity-75 live-pulse"></span>
-                            <span className="relative rounded-full h-4 w-4 bg-emerald-500 border-2 border-white"></span>
-                          </div>
-                        ) : (
-                          <span
-                            className={`rounded-full h-3 w-3 border-2 transition-all duration-300 ${
-                              isPassed
-                                ? "bg-emerald-500 border-emerald-500 scale-110"
-                                : isSunlightMode
-                                ? "bg-white border-sky-200"
-                                : "bg-slate-950 border-sky-950"
-                            }`}
-                          />
-                        )}
-                      </div>
-
-                      {/* Timeline card details */}
-                      <div
-                        className={`flex-1 p-3.5 rounded-xl border-2 transition-all duration-300 ${
-                          isCurrent
-                            ? "border-emerald-500 bg-emerald-500/5 shadow-xs"
-                            : isSunlightMode
-                            ? "bg-white border-sky-100 hover:border-sky-200"
-                            : "bg-slate-900/30 border-sky-950/40 hover:border-sky-900/50"
-                        }`}
-                      >
-                        <div className="flex justify-between items-center gap-2">
-                          <div>
-                            <span className="text-[10px] font-black uppercase text-slate-400">
-                              {isSource ? "SOURCE" : isDestination ? "DESTINATION" : `STOP ${idx}`}
-                            </span>
-                            <h4 className={`text-sm font-black tracking-tight uppercase ${
-                              isSunlightMode ? "text-sky-955" : "text-sky-100"
-                            }`}>
-                              {station.sourceStationName}
-                            </h4>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              isSunlightMode ? "text-primary bg-sky-50" : "text-sky-300 bg-sky-950/40"
-                            }`}>
-                              {station.sourceStationCode}
-                            </span>
-                          </div>
-
-                          {/* Platform Badge */}
-                          <div className="flex flex-col items-end">
-                            <span
-                              className={`px-2.5 py-1 text-xs font-black rounded-lg uppercase tracking-wider ${
-                                isSunlightMode
-                                  ? "bg-primary text-white"
-                                  : "bg-secondary text-slate-950"
-                              }`}
-                            >
-                              PF {mockPlatform}
-                            </span>
+                          ) : (
                             <span className="text-[9px] font-bold text-slate-400 mt-1">
                               {station.distance} km
                             </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Timings row */}
+                      <div className={`grid grid-cols-2 gap-4 mt-3 pt-2.5 border-t text-xs ${
+                        isSunlightMode ? "border-sky-50" : "border-sky-950/20"
+                      }`}>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase">
+                              Arrival
+                            </span>
+                            <span className={`font-extrabold ${isSunlightMode ? "text-sky-900" : "text-sky-100"}`}>
+                              {liveHalt 
+                                ? (liveHalt.actualArrival === "--:--" ? liveHalt.scheduledArrival : liveHalt.actualArrival)
+                                : station.arrival}
+                            </span>
+                            {liveHalt && (
+                              <span className="text-[8px] text-slate-400">
+                                Sch: {liveHalt.scheduledArrival}
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        {/* Timings row */}
-                        <div className={`grid grid-cols-2 gap-4 mt-3 pt-2.5 border-t text-xs ${
-                          isSunlightMode ? "border-sky-50" : "border-sky-950/20"
-                        }`}>
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase">
-                                Arrival
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <div className="flex flex-col">
+                            <span className="text-[9px] font-bold text-slate-400 uppercase">
+                              Departure
+                            </span>
+                            <span className={`font-extrabold ${isSunlightMode ? "text-sky-900" : "text-sky-100"}`}>
+                              {liveHalt
+                                ? (liveHalt.actualDeparture === "--:--" ? liveHalt.scheduledDeparture : liveHalt.actualDeparture)
+                                : station.departure}
+                            </span>
+                            {liveHalt && (
+                              <span className="text-[8px] text-slate-400">
+                                Sch: {liveHalt.scheduledDeparture}
                               </span>
-                              <span className={`font-extrabold ${isSunlightMode ? "text-sky-900" : "text-sky-100"}`}>
-                                {station.arrival}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-bold text-slate-400 uppercase">
-                                Departure
-                              </span>
-                              <span className={`font-extrabold ${isSunlightMode ? "text-sky-900" : "text-sky-100"}`}>
-                                {station.departure}
-                              </span>
-                            </div>
+                            )}
                           </div>
                         </div>
                       </div>
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
